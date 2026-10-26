@@ -1,0 +1,6 @@
+{
+  "name": "AuraTrade - Stock Trading & Portfolio Terminal",
+  "description": "Real-time stock market terminal with live streaming quotes, interactive candlestick technical charting, portfolio analytics, and secure sandbox payment integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
