@@ -56,6 +56,18 @@ export const TradingTerminal: React.FC = () => {
         setOrderType('limit');
         setLimitPriceInput(quickTradePrefill.price.toFixed(2));
       }
+      if (quickTradePrefill.shares) {
+        setSharesInput(quickTradePrefill.shares.toString());
+      }
+      if (quickTradePrefill.isBracket !== undefined) {
+        setIsBracketEnabled(quickTradePrefill.isBracket);
+      }
+      if (quickTradePrefill.takeProfitPrice) {
+        setTpPriceInput(quickTradePrefill.takeProfitPrice.toFixed(2));
+      }
+      if (quickTradePrefill.stopLossPrice) {
+        setSlPriceInput(quickTradePrefill.stopLossPrice.toFixed(2));
+      }
       setQuickTradePrefill(null);
     }
   }, [quickTradePrefill, setQuickTradePrefill]);

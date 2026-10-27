@@ -4,6 +4,9 @@ export type StrategyType =
   | 'sma_cross'
   | 'rsi_reversion'
   | 'breakout_momentum'
+  | 'bollinger_squeeze'
+  | 'macd_cross'
+  | 'vwap_reversion'
   | 'ai_multi_factor';
 
 export interface BacktestConfig {
@@ -60,7 +63,7 @@ export interface BacktestResult {
 /**
  * Calculates 14-period Relative Strength Index array
  */
-function calculateRSI(candles: Candle[], period = 14): (number | null)[] {
+export function calculateRSI(candles: Candle[], period = 14): (number | null)[] {
   const rsi: (number | null)[] = [];
   let gains = 0;
   let losses = 0;
@@ -98,7 +101,7 @@ function calculateRSI(candles: Candle[], period = 14): (number | null)[] {
 /**
  * Calculates Simple Moving Average array
  */
-function calculateSMA(candles: Candle[], period: number): (number | null)[] {
+export function calculateSMA(candles: Candle[], period: number): (number | null)[] {
   const sma: (number | null)[] = [];
   for (let i = 0; i < candles.length; i++) {
     if (i < period - 1) {
@@ -115,6 +118,161 @@ function calculateSMA(candles: Candle[], period: number): (number | null)[] {
 }
 
 /**
+ * Calculates Exponential Moving Average array
+ */
+export function calculateEMA(candles: Candle[], period: number): (number | null)[] {
+  const ema: (number | null)[] = [];
+  const k = 2 / (period + 1);
+  let prevEma: number | null = null;
+
+  for (let i = 0; i < candles.length; i++) {
+    if (i < period - 1) {
+      ema.push(null);
+    } else if (i === period - 1) {
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        sum += candles[i - j].close;
+      }
+      prevEma = sum / period;
+      ema.push(prevEma);
+    } else {
+      const currentEma: number = candles[i].close * k + (prevEma as number) * (1 - k);
+      prevEma = currentEma;
+      ema.push(currentEma);
+    }
+  }
+  return ema;
+}
+
+/**
+ * Calculates MACD (12, 26, 9)
+ */
+export function calculateMACD(
+  candles: Candle[],
+  fastPeriod = 12,
+  slowPeriod = 26,
+  signalPeriod = 9
+): {
+  macd: (number | null)[];
+  signal: (number | null)[];
+  histogram: (number | null)[];
+} {
+  const fastEma = calculateEMA(candles, fastPeriod);
+  const slowEma = calculateEMA(candles, slowPeriod);
+  const macdLine: (number | null)[] = [];
+
+  for (let i = 0; i < candles.length; i++) {
+    if (fastEma[i] !== null && slowEma[i] !== null) {
+      macdLine.push(fastEma[i]! - slowEma[i]!);
+    } else {
+      macdLine.push(null);
+    }
+  }
+
+  // Calculate Signal line (EMA of MACD line)
+  const signalLine: (number | null)[] = [];
+  const validMacdValues: { index: number; val: number }[] = [];
+  macdLine.forEach((val, idx) => {
+    if (val !== null) validMacdValues.push({ index: idx, val });
+  });
+
+  const k = 2 / (signalPeriod + 1);
+  let prevSig: number | null = null;
+
+  for (let i = 0; i < macdLine.length; i++) {
+    const validIdx = validMacdValues.findIndex((item) => item.index === i);
+    if (validIdx === -1 || validIdx < signalPeriod - 1) {
+      signalLine.push(null);
+    } else if (validIdx === signalPeriod - 1) {
+      let sum = 0;
+      for (let j = 0; j < signalPeriod; j++) {
+        sum += validMacdValues[validIdx - j].val;
+      }
+      prevSig = sum / signalPeriod;
+      signalLine.push(prevSig);
+    } else {
+      const curSig: number = (macdLine[i] as number) * k + (prevSig as number) * (1 - k);
+      prevSig = curSig;
+      signalLine.push(curSig);
+    }
+  }
+
+  const histogram: (number | null)[] = [];
+  for (let i = 0; i < candles.length; i++) {
+    if (macdLine[i] !== null && signalLine[i] !== null) {
+      histogram.push(macdLine[i]! - signalLine[i]!);
+    } else {
+      histogram.push(null);
+    }
+  }
+
+  return { macd: macdLine, signal: signalLine, histogram };
+}
+
+/**
+ * Calculates Bollinger Bands (20 period, 2 std dev)
+ */
+export function calculateBollingerBands(
+  candles: Candle[],
+  period = 20,
+  stdDevMultiplier = 2
+): {
+  middle: (number | null)[];
+  upper: (number | null)[];
+  lower: (number | null)[];
+  bandwidth: (number | null)[];
+} {
+  const middle = calculateSMA(candles, period);
+  const upper: (number | null)[] = [];
+  const lower: (number | null)[] = [];
+  const bandwidth: (number | null)[] = [];
+
+  for (let i = 0; i < candles.length; i++) {
+    if (middle[i] === null) {
+      upper.push(null);
+      lower.push(null);
+      bandwidth.push(null);
+    } else {
+      let sumSqDiff = 0;
+      for (let j = 0; j < period; j++) {
+        sumSqDiff += Math.pow(candles[i - j].close - middle[i]!, 2);
+      }
+      const stdDev = Math.sqrt(sumSqDiff / period);
+      const u = middle[i]! + stdDevMultiplier * stdDev;
+      const l = middle[i]! - stdDevMultiplier * stdDev;
+      upper.push(u);
+      lower.push(l);
+      bandwidth.push(middle[i]! > 0 ? ((u - l) / middle[i]!) * 100 : 0);
+    }
+  }
+
+  return { middle, upper, lower, bandwidth };
+}
+
+/**
+ * Calculates Volume-Weighted Average Price (VWAP)
+ */
+export function calculateVWAP(candles: Candle[]): (number | null)[] {
+  const vwap: (number | null)[] = [];
+  let cumTypicalVolume = 0;
+  let cumVolume = 0;
+
+  for (let i = 0; i < candles.length; i++) {
+    const typicalPrice = (candles[i].high + candles[i].low + candles[i].close) / 3;
+    const vol = candles[i].volume || 1000;
+    cumTypicalVolume += typicalPrice * vol;
+    cumVolume += vol;
+
+    if (cumVolume > 0) {
+      vwap.push(cumTypicalVolume / cumVolume);
+    } else {
+      vwap.push(candles[i].close);
+    }
+  }
+  return vwap;
+}
+
+/**
  * Runs a deterministic historical backtest across candle data
  */
 export function runBacktest(candles: Candle[], config: BacktestConfig): BacktestResult {
@@ -125,6 +283,9 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
   const sma20 = calculateSMA(candles, 20);
   const sma50 = calculateSMA(candles, 50);
   const rsi14 = calculateRSI(candles, 14);
+  const macdData = calculateMACD(candles);
+  const bbData = calculateBollingerBands(candles);
+  const vwapData = calculateVWAP(candles);
 
   let cash = config.initialCapital;
   let currentPosition: {
@@ -190,6 +351,32 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
               shouldExit = true;
               exitReason = 'indicator_exit';
             }
+          }
+        } else if (config.strategy === 'bollinger_squeeze') {
+          // Exit when closing below 20-period middle band
+          if (bbData.middle[i] !== null && price < bbData.middle[i]!) {
+            shouldExit = true;
+            exitReason = 'indicator_exit';
+          }
+        } else if (config.strategy === 'macd_cross') {
+          // Bearish MACD crossover exit
+          if (
+            i > 1 &&
+            macdData.macd[i] !== null &&
+            macdData.signal[i] !== null &&
+            macdData.macd[i - 1] !== null &&
+            macdData.signal[i - 1] !== null
+          ) {
+            if (macdData.macd[i]! < macdData.signal[i]! && macdData.macd[i - 1]! >= macdData.signal[i - 1]!) {
+              shouldExit = true;
+              exitReason = 'indicator_exit';
+            }
+          }
+        } else if (config.strategy === 'vwap_reversion') {
+          // Exit when price crosses back above VWAP + 1% or RSI becomes high
+          if (vwapData[i] !== null && (price >= vwapData[i]! * 1.01 || (rsi14[i] !== null && rsi14[i]! >= 68))) {
+            shouldExit = true;
+            exitReason = 'indicator_exit';
           }
         } else if (config.strategy === 'ai_multi_factor') {
           // AI Exit: RSI > 70 or 20-day high rejection
@@ -261,8 +448,41 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
             shouldEnter = true;
           }
         }
+      } else if (config.strategy === 'bollinger_squeeze') {
+        // Bollinger Squeeze Breakout: Price pierces Upper Band with expanding bandwidth
+        if (
+          i > 5 &&
+          bbData.upper[i] !== null &&
+          bbData.bandwidth[i] !== null &&
+          bbData.bandwidth[i - 1] !== null
+        ) {
+          const isExpanding = bbData.bandwidth[i]! > bbData.bandwidth[i - 1]!;
+          if (candle.close >= bbData.upper[i]! && isExpanding && candle.close > candle.open) {
+            shouldEnter = true;
+          }
+        }
+      } else if (config.strategy === 'macd_cross') {
+        // MACD Bullish Crossover: MACD crosses above Signal Line
+        if (
+          i > 1 &&
+          macdData.macd[i] !== null &&
+          macdData.signal[i] !== null &&
+          macdData.macd[i - 1] !== null &&
+          macdData.signal[i - 1] !== null
+        ) {
+          if (macdData.macd[i]! > macdData.signal[i]! && macdData.macd[i - 1]! <= macdData.signal[i - 1]!) {
+            shouldEnter = true;
+          }
+        }
+      } else if (config.strategy === 'vwap_reversion') {
+        // Institutional VWAP Discount: Price trading below VWAP with bullish reversal bar
+        if (vwapData[i] !== null && rsi14[i] !== null) {
+          if (candle.close < vwapData[i]! * 0.985 && rsi14[i]! < 45 && candle.close > candle.open) {
+            shouldEnter = true;
+          }
+        }
       } else if (config.strategy === 'ai_multi_factor') {
-        // AI Confluence: RSI < 45, holding above SMA50, and positive candle body
+        // AI Confluence: RSI < 48, holding above SMA50, and positive candle body
         if (rsi14[i] !== null && sma50[i] !== null) {
           if (rsi14[i]! < 48 && candle.close > sma50[i]! && candle.close > candle.open) {
             shouldEnter = true;
@@ -349,6 +569,9 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
   let strategyName = '20/50 SMA Golden Cross';
   if (config.strategy === 'rsi_reversion') strategyName = 'RSI(14) Mean Reversion';
   if (config.strategy === 'breakout_momentum') strategyName = '20-Day Donchian Breakout';
+  if (config.strategy === 'bollinger_squeeze') strategyName = 'Bollinger Band Squeeze Breakout';
+  if (config.strategy === 'macd_cross') strategyName = 'MACD Crossover Momentum';
+  if (config.strategy === 'vwap_reversion') strategyName = 'VWAP Institutional Mean Reversion';
   if (config.strategy === 'ai_multi_factor') strategyName = 'AI Multi-Factor Confluence';
 
   const periodDays = Math.round((candles[candles.length - 1].timestamp - candles[0].timestamp) / (1000 * 3600 * 24));

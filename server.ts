@@ -188,8 +188,18 @@ app.post('/api/analyze-stock', async (req: Request, res: Response) => {
       },
     });
 
-    const prompt = `You are a senior Wall Street quantitative strategist and portfolio analyst.
-Analyze the following asset and generate a high-conviction trade setup based on live market pricing:
+    const strategyContext = quantStrategy?.strategyName
+      ? `Strategy Archetype to Execute: ${quantStrategy.strategyName}
+Key Computed Indicators:
+- RSI (14): ${quantStrategy.metrics?.rsi ?? 'N/A'}
+- 20-period SMA: $${quantStrategy.metrics?.sma20 ?? 'N/A'}
+- Volume-Weighted Avg Price (VWAP): $${quantStrategy.metrics?.vwap ?? 'N/A'}
+- Bollinger Bands: Lower $${quantStrategy.metrics?.lowerBB ?? 'N/A'} | Upper $${quantStrategy.metrics?.upperBB ?? 'N/A'} (Bandwidth: ${quantStrategy.metrics?.bandwidth ?? 'N/A'}%)
+- MACD Histogram: ${quantStrategy.metrics?.macdHist ?? 'N/A'}`
+      : '';
+
+    const prompt = `You are a senior quantitative hedge fund trader and algorithmic strategist.
+Analyze the following asset and formulate an institutional-grade trade setup adhering to the specified strategy archetype:
 
 Asset: ${stock.symbol} (${stock.name})
 Sector: ${stock.sector}
@@ -198,18 +208,20 @@ Current Price: $${stock.price}
 52W Range: $${stock.fiftyTwoWeekLow} - $${stock.fiftyTwoWeekHigh}
 P/E Ratio: ${stock.peRatio || 'N/A'}
 Market Cap: $${(stock.marketCap / 1e9).toFixed(1)}B
-Analyst Consensus: ${stock.analystRating?.consensus || 'Buy'} with average target $${stock.analystRating?.targetPrice || (stock.price * 1.1).toFixed(2)}
+Analyst Consensus: ${stock.analystRating?.consensus || 'Buy'} with target $${stock.analystRating?.targetPrice || (stock.price * 1.1).toFixed(2)}
+
+${strategyContext}
 
 Return ONLY valid JSON matching this schema:
 {
   "action": "BUY" or "SELL",
-  "strategyName": "short descriptive name (e.g. Bullish Breakout Continuation, Mean Reversion Accumulation)",
-  "confidence": number between 75 and 95,
+  "strategyName": "${quantStrategy?.strategyName || 'Quantitative Setup'}",
+  "confidence": number between 78 and 96,
   "entryPrice": number (suggested entry price in USD),
   "targetPrice": number (take profit price target in USD),
   "stopLossPrice": number (risk mitigation stop price in USD),
   "riskRewardRatio": "1 : X.X",
-  "technicalSummary": "2-3 sentence technical & fundamental catalyst rationale for this setup",
+  "technicalSummary": "2-3 sentence technical & fundamental catalyst rationale tailored to this strategy archetype",
   "catalysts": ["catalyst 1", "catalyst 2", "catalyst 3"]
 }`;
 

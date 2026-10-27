@@ -115,8 +115,26 @@ interface TradingContextType {
   addToast: (toast: Omit<NotificationToast, 'id' | 'timestamp'>) => void;
 
   // Quick trade prefill
-  quickTradePrefill: { symbol?: string; price?: number; side?: 'buy' | 'sell' } | null;
-  setQuickTradePrefill: (prefill: { symbol?: string; price?: number; side?: 'buy' | 'sell' } | null) => void;
+  quickTradePrefill: {
+    symbol?: string;
+    price?: number;
+    side?: 'buy' | 'sell';
+    shares?: number;
+    takeProfitPrice?: number;
+    stopLossPrice?: number;
+    isBracket?: boolean;
+    strategyName?: string;
+  } | null;
+  setQuickTradePrefill: (prefill: {
+    symbol?: string;
+    price?: number;
+    side?: 'buy' | 'sell';
+    shares?: number;
+    takeProfitPrice?: number;
+    stopLossPrice?: number;
+    isBracket?: boolean;
+    strategyName?: string;
+  } | null) => void;
 }
 
 const STORAGE_KEYS = {
@@ -202,7 +220,16 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [paymentModalInitialTab, setPaymentModalInitialTab] = useState<'deposit' | 'withdraw' | 'card' | 'quick'>('deposit');
 
   // Quick trade prefill from order book clicks or portfolio clicks
-  const [quickTradePrefill, setQuickTradePrefill] = useState<{ symbol?: string; price?: number; side?: 'buy' | 'sell' } | null>(null);
+  const [quickTradePrefill, setQuickTradePrefill] = useState<{
+    symbol?: string;
+    price?: number;
+    side?: 'buy' | 'sell';
+    shares?: number;
+    takeProfitPrice?: number;
+    stopLossPrice?: number;
+    isBracket?: boolean;
+    strategyName?: string;
+  } | null>(null);
 
   // Candles & depth state for currently selected stock
   const [candles, setCandles] = useState<Candle[]>(() => {

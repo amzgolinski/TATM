@@ -23,13 +23,63 @@ import {
   XCircle,
   HelpCircle,
   Zap,
+  Target,
+  ArrowRight,
 } from 'lucide-react';
+
+const STRATEGY_DETAILS: Record<
+  StrategyType,
+  { label: string; entryRule: string; exitRule: string; edge: string }
+> = {
+  ai_multi_factor: {
+    label: 'AI Multi-Factor Confluence',
+    entryRule: 'RSI < 48 + price holding above 50-period SMA + positive candle body',
+    exitRule: 'RSI > 70 overbought exhaustion or bracket TP/SL hit',
+    edge: 'Filters noise by combining oscillator momentum, structural trend, and price velocity',
+  },
+  bollinger_squeeze: {
+    label: 'Bollinger Band Squeeze Breakout',
+    entryRule: 'Bandwidth contraction (< 12%) followed by close above Upper Bollinger Band',
+    exitRule: 'Close below 20-period middle baseline or bracket TP/SL hit',
+    edge: 'Capitalizes on low-volatility compression transitioning into high-velocity trend breakouts',
+  },
+  macd_cross: {
+    label: 'MACD Crossover Momentum',
+    entryRule: 'MACD line crosses above 9-period Signal line with positive histogram expansion',
+    exitRule: 'MACD line crosses below Signal line or bracket TP/SL hit',
+    edge: 'Catches explosive early-stage momentum acceleration before retail indicators flag trend',
+  },
+  vwap_reversion: {
+    label: 'VWAP Institutional Mean Reversion',
+    entryRule: 'Price discounted > 1.5% below VWAP with RSI < 45 and reversal candle confirmation',
+    exitRule: 'Price re-enters VWAP benchmark + 1% or bracket TP/SL hit',
+    edge: 'Exploits algorithmic dealer liquidity imbalances that systematically revert to fair value',
+  },
+  rsi_reversion: {
+    label: 'RSI(14) Mean Reversion',
+    entryRule: 'RSI(14) dips below 32 oversold threshold and curls upward',
+    exitRule: 'RSI crosses above 65 overbought threshold or bracket TP/SL hit',
+    edge: 'High historical win rate capturing extreme seller exhaustion bounces',
+  },
+  breakout_momentum: {
+    label: '20-Day Donchian Breakout',
+    entryRule: 'Price pierces the rolling 20-day high with expanding volume',
+    exitRule: 'Close below rolling 10-day low or bracket TP/SL hit',
+    edge: 'Classic trend-following rule that captures asymmetric multi-month equity runs',
+  },
+  sma_cross: {
+    label: '20/50 SMA Golden Cross',
+    entryRule: '20-period SMA crosses above 50-period SMA (Golden Cross)',
+    exitRule: '20-period SMA crosses below 50-period SMA (Death Cross)',
+    edge: 'Robust systematic trend-following regime filter for intermediate market cycles',
+  },
+};
 
 export const BacktestView: React.FC = () => {
   const { stocks, selectedSymbol, setSelectedSymbol, setActiveTab, setQuickTradePrefill } = useTrading();
 
   const [symbol, setSymbol] = useState<string>(selectedSymbol || 'NVDA');
-  const [strategy, setStrategy] = useState<StrategyType>('sma_cross');
+  const [strategy, setStrategy] = useState<StrategyType>('ai_multi_factor');
   const [years, setYears] = useState<number>(3);
   const [initialCapital, setInitialCapital] = useState<number>(100000);
   const [positionSize, setPositionSize] = useState<number>(50);
@@ -243,10 +293,13 @@ export const BacktestView: React.FC = () => {
               onChange={(e) => setStrategy(e.target.value as StrategyType)}
               className="w-full bg-[#131d31] border border-slate-700/80 rounded-lg px-2.5 py-2 text-white font-bold text-xs focus:border-blue-500"
             >
-              <option value="sma_cross">20/50 SMA Golden Cross (Trend)</option>
-              <option value="rsi_reversion">RSI(14) Mean Reversion (Bounce)</option>
-              <option value="breakout_momentum">20-Day Donchian Breakout</option>
-              <option value="ai_multi_factor">AI Multi-Factor Confluence</option>
+              <option value="ai_multi_factor">AI Multi-Factor Confluence (VWAP+RSI+Trend)</option>
+              <option value="bollinger_squeeze">Bollinger Band Squeeze Breakout (Volatility)</option>
+              <option value="macd_cross">MACD Crossover Momentum (Velocity)</option>
+              <option value="vwap_reversion">VWAP Institutional Mean Reversion (Liquidity)</option>
+              <option value="rsi_reversion">RSI(14) Mean Reversion (Oscillator)</option>
+              <option value="breakout_momentum">20-Day Donchian Breakout (Trend)</option>
+              <option value="sma_cross">20/50 SMA Golden Cross (Moving Avg)</option>
             </select>
           </div>
 
@@ -306,6 +359,60 @@ export const BacktestView: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Strategy Methodology & Parameters Explainer */}
+      <div className="bg-[#10192d] rounded-xl border border-blue-500/20 p-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1.5 max-w-2xl">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-white">
+              {STRATEGY_DETAILS[strategy]?.label || strategy} Rules & Algorithmic Mechanics
+            </span>
+            <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800">
+              Deterministic Quantitative Logic
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <div className="text-slate-300">
+              <strong className="text-emerald-400 font-mono">Entry Trigger:</strong>{' '}
+              {STRATEGY_DETAILS[strategy]?.entryRule}
+            </div>
+            <div className="text-slate-300">
+              <strong className="text-rose-400 font-mono">Exit Rule:</strong>{' '}
+              {STRATEGY_DETAILS[strategy]?.exitRule}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 italic">
+            Statistical Edge: {STRATEGY_DETAILS[strategy]?.edge}
+          </p>
+        </div>
+
+        <button
+          onClick={() => {
+            const currentPrice = stocks[symbol]?.price || 150;
+            const allocation = initialCapital * (positionSize / 100);
+            const shares = Math.max(1, Math.floor(allocation / currentPrice));
+            const tpPrice = useStops ? currentPrice * (1 + takeProfit / 100) : currentPrice * 1.10;
+            const slPrice = useStops ? currentPrice * (1 - stopLoss / 100) : currentPrice * 0.95;
+
+            setSelectedSymbol(symbol);
+            setQuickTradePrefill({
+              symbol,
+              side: 'buy',
+              price: currentPrice,
+              shares,
+              takeProfitPrice: tpPrice,
+              stopLossPrice: slPrice,
+              isBracket: useStops,
+              strategyName: result?.strategyName || strategy,
+            });
+            setActiveTab('terminal');
+          }}
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer shadow-md"
+        >
+          <span>Stage {symbol} in Terminal</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* 2. Simulation Performance KPI Strip */}
