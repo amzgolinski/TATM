@@ -21,6 +21,7 @@ import {
   Gauge,
   Activity,
   BarChart2,
+  Bot,
 } from 'lucide-react';
 
 const STRATEGY_PRESETS: { id: StrategyType; label: string; tag: string }[] = [
@@ -41,6 +42,9 @@ export const AITradeAnalyst: React.FC = () => {
     setQuickTradePrefill,
     addToast,
     setActiveTab,
+    botConfig,
+    toggleBotMasterSwitch,
+    botStatus,
   } = useTrading();
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -168,6 +172,24 @@ export const AITradeAnalyst: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('bot')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
+                botConfig.enabled
+                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-600'
+                  : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:text-white'
+              }`}
+              title="Open Autonomous Agent Bot Control Station"
+            >
+              <Bot className="w-3.5 h-3.5 text-blue-400" />
+              <span>Bot: {botConfig.enabled ? 'ARMED' : 'STANDBY'}</span>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  botConfig.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                }`}
+              />
+            </button>
+
             <button
               onClick={() => setShowRadar(!showRadar)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${

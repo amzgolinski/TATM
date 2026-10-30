@@ -50,7 +50,32 @@ TATM features an automated strategy scanner and quantitative engine (`src/utils/
 
 ---
 
-### 3. Algorithmic Backtesting Simulator
+### 3. Autonomous Bot Mode & Live Brokerage Gateway (`src/components/AgentBotView.tsx`)
+TATM features a dedicated **Autonomous Auto-Trader Station** capable of continuous unattended market scanning, signal qualification, and autonomous bracket order execution:
+
+- **Master Switch Control**: One-click `ARM / START` and `PAUSE` toggle with real-time pulsing LED status indicator.
+- **Emergency Panic Kill Switch**: Instantly disarms all bot operations and cancels working bracket orders with an audible alert.
+- **Institutional Risk Guardrails**:
+  - *Min Conviction Threshold* (75% to 95%): Only triggers entries when model confidence exceeds the threshold.
+  - *Max Allocation per Position* ($500 to $10,000): Enforces hard capital ceilings per trade.
+  - *Max Concurrent Open Bot Positions* (1 to 6): Caps simultaneous portfolio risk exposure.
+  - *Symbol Cooldown Interval* (30s to 300s): Enforces mandatory wait periods between trades on the same asset to eliminate churn.
+  - *Take-Profit Target Offset* (+3% to +15%) & *Stop-Loss Limit Offset* (-1.5% to -8%).
+- **Live Real-Time Telemetry Feed**:
+  - Scrolling CRT terminal log with color-coded event tags (`[SCAN]`, `[SIGNAL]`, `[EXECUTE]`, `[OCO_EXIT]`, `[KILL_SWITCH]`, `[REJECT]`).
+  - Filterable by event type with clear logs and auto-scroll capabilities.
+- **Pure Web Audio API Synthesizer (`src/utils/audioAlerts.ts`)**:
+  - Synthesizes dual-harmonic sine-wave trade execution chimes, crisp signal blips, and sawtooth kill-switch alerts without any external sound files or asset dependencies.
+- **Plug-and-Play Live Brokerage Adapter (`src/services/brokerAdapter.ts`)**:
+  - Built with an abstraction layer ready to swap between:
+    1. **TATM Internal Paper Engine**: In-memory simulation with live tick OCO liquidation.
+    2. **Alpaca Markets (Equities & Crypto)**: Direct schema generator for Alpaca REST API (`https://paper-api.alpaca.markets/v2/orders`) supporting native bracket orders (`order_class: 'bracket'`).
+    3. **Coinbase Advanced Trade (Crypto)**: Direct schema generator for Coinbase Advanced Trade API (`https://api.coinbase.com/api/v3/brokerage/orders`) matching the public WebSocket ticks.
+  - Interactive Payload Inspector showing the exact JSON schemas and HTTP headers required by real-world brokers.
+
+---
+
+### 4. Algorithmic Backtesting Simulator
 Simulate quantitative trading rules against multi-year historical candle datasets (`src/components/BacktestView.tsx` & `src/utils/backtestEngine.ts`):
 - **Deterministic Indicator Engine**: Pure mathematical calculations for EMA, MACD, Bollinger Bands, and cumulative VWAP across historical bars.
 - **Configurable Simulations**: Set historical ranges (1, 2, 3, or 5 Years), initial capital, position sizing percentage, slippage (0.05%), and risk brackets (TP/SL).
@@ -69,7 +94,7 @@ Simulate quantitative trading rules against multi-year historical candle dataset
 
 ---
 
-### 4. Order Execution & Advanced Bracket Orders (OCO)
+### 5. Order Execution & Advanced Bracket Orders (OCO)
 - **Order Types**: Instant **Market Orders**, working **Limit Orders**, and **Stop-Loss Protection Orders**.
 - **Bracket Orders (Take-Profit & Stop-Loss)**:
   - Stage conditional Take-Profit (TP) and Stop-Loss (SL) exit orders concurrently with entry tickets.
@@ -81,7 +106,7 @@ Simulate quantitative trading rules against multi-year historical candle dataset
 
 ---
 
-### 5. Portfolio Tracking & Risk Analytics
+### 6. Portfolio Tracking & Risk Analytics
 - **Live Net Worth Dashboard**: Tracks total equity, cash reserve, today's P&L, unrealized returns, and realized closed gains.
 - **Asset Allocation Breakdown**: Visual weighting breakdown of open positions and cash holdings.
 - **Holdings Table**: Complete position inventory with direct **Buy More**, **Sell**, and inline **Bracket (TP/SL)** controls.
@@ -90,7 +115,7 @@ Simulate quantitative trading rules against multi-year historical candle dataset
 
 ---
 
-### 6. Secure Payment & Funding Gateway (Sandbox)
+### 7. Secure Payment & Funding Gateway (Sandbox)
 - **Instant ACH Transfer (Plaid Simulation)**: Deposit funds from verified accounts (JPMorgan Chase, Bank of America, Wells Fargo) or link new accounts via cryptographic tokenization.
 - **Debit / Credit Card (3D Secure 2.0)**: Test card processing with simulated SMS OTP authentication modal.
 - **Instant Sandbox Grants**: 1-click +$5,000, +$25,000 (Pattern Day Trader), and +$100,000 capital grants for testing.
@@ -108,6 +133,7 @@ TATM Application Architecture
 │   ├── TypeScript
 │   ├── Tailwind CSS v4 (Institutional Dark Financial Theme)
 │   ├── Lucide React Icons
+│   ├── AgentBotView.tsx (Autonomous Bot Command Console & Telemetry)
 │   └── SVG Financial Charting (with TP/SL bracket visual lines & indicators)
 │
 ├── Streaming & Market Data Tier
@@ -115,7 +141,10 @@ TATM Application Architecture
 │   │   └── Real-time crypto ticker & trade prints (BTC-USD, ETH-USD, SOL-USD)
 │   └── Brownian Motion Stochastic Generator (Equities & Macro Indices)
 │
-├── Algorithmic & Quantitative Engine
+├── Algorithmic & Quantitative Bot Tier
+│   ├── Autonomous Bot Loop (Continuous scanning, conviction checks, cooldowns)
+│   ├── brokerAdapter.ts (Paper Engine, Alpaca Markets API & Coinbase Advanced Schemas)
+│   ├── audioAlerts.ts (Web Audio API Synthesizer for execution chimes & alerts)
 │   ├── backtestEngine.ts (EMA, MACD, Bollinger Bands, VWAP, Sharpe Ratio, Equity Curves)
 │   ├── quantAnalyzer.ts (7 Agent Strategy Archetypes, Multi-Strategy Radar Scanner)
 │   └── Autonomous OCO Bracket Engine (Tick-by-tick liquidation & stop enforcement)

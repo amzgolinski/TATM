@@ -1,11 +1,13 @@
 import React from 'react';
 import { useTrading } from '../context/TradingContext';
-import { ShieldCheck, Plus, RotateCcw } from 'lucide-react';
+import { ShieldCheck, Plus, RotateCcw, Bot } from 'lucide-react';
 
 export const TopBar: React.FC = () => {
   const {
     activeTab,
     setActiveTab,
+    botConfig,
+    botStatus,
     cashBalance,
     totalEquity,
     dailyPnL,
@@ -55,6 +57,28 @@ export const TopBar: React.FC = () => {
           }`}
         >
           <span>Terminal & Charts</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('bot')}
+          className={`cursor-pointer pb-1 transition-colors whitespace-nowrap shrink-0 border-b-2 flex items-center gap-1.5 ${
+            activeTab === 'bot'
+              ? 'text-white border-blue-500 font-semibold'
+              : 'text-slate-400 border-transparent hover:text-white'
+          }`}
+        >
+          <Bot className="w-3.5 h-3.5 text-blue-400" />
+          <span>Agent Auto-Trader</span>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              botConfig.enabled
+                ? 'bg-emerald-400 animate-pulse shadow-xs shadow-emerald-400'
+                : botStatus === 'HALTED'
+                ? 'bg-rose-500'
+                : 'bg-slate-600'
+            }`}
+            title={botConfig.enabled ? 'Bot Armed & Scanning' : 'Bot Standby'}
+          />
         </button>
 
         <button

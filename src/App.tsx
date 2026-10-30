@@ -12,6 +12,7 @@ import { PortfolioView } from './components/PortfolioView';
 import { OrdersAndLedgerView } from './components/OrdersAndLedgerView';
 import { FundingView } from './components/FundingView';
 import { BacktestView } from './components/BacktestView';
+import { AgentBotView } from './components/AgentBotView';
 import { PaymentModal } from './components/PaymentModal';
 import { ToastContainer } from './components/ToastContainer';
 
@@ -54,6 +55,8 @@ const MainContent: React.FC = () => {
           </div>
         </div>
       )}
+
+      {activeTab === 'bot' && <AgentBotView />}
 
       {activeTab === 'portfolio' && <PortfolioView />}
 

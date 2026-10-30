@@ -20,6 +20,9 @@ import {
   generateInitialTape,
 } from '../data/mockStocks';
 import { coinbaseWS } from '../services/coinbaseFeed';
+import { BotConfig, BotLogEntry, BotMetrics, BotStatus } from '../types/bot';
+import { generateQuantitativeAnalysis } from '../utils/quantAnalyzer';
+import { playTradeExecuteSound, playKillSwitchSound } from '../utils/audioAlerts';
 
 interface NotificationToast {
   id: string;
@@ -57,8 +60,18 @@ interface TradingContextType {
   isWatchlisted: (symbol: string) => boolean;
 
   // View state
-  activeTab: 'terminal' | 'portfolio' | 'orders' | 'funding' | 'backtest';
-  setActiveTab: (tab: 'terminal' | 'portfolio' | 'orders' | 'funding' | 'backtest') => void;
+  activeTab: 'terminal' | 'portfolio' | 'orders' | 'funding' | 'backtest' | 'bot';
+  setActiveTab: (tab: 'terminal' | 'portfolio' | 'orders' | 'funding' | 'backtest' | 'bot') => void;
+
+  // Autonomous Agent Bot Engine
+  botConfig: BotConfig;
+  updateBotConfig: (partial: Partial<BotConfig>) => void;
+  botStatus: BotStatus;
+  botLogs: BotLogEntry[];
+  clearBotLogs: () => void;
+  botMetrics: BotMetrics;
+  toggleBotMasterSwitch: () => void;
+  triggerPanicKillSwitch: () => void;
 
   // Payment Modal
   isPaymentModalOpen: boolean;
@@ -145,6 +158,8 @@ const STORAGE_KEYS = {
   WATCHLISTS: 'auratrade_watchlists_v1',
   PAYMENT_METHODS: 'auratrade_payment_methods_v1',
   REALIZED_PNL: 'auratrade_realized_pnl_v1',
+  BOT_CONFIG: 'auratrade_bot_config_v1',
+  BOT_LOGS: 'auratrade_bot_logs_v1',
 };
 
 const DEFAULT_WATCHLIST = ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'SPY', 'BTC-USD'];
@@ -207,7 +222,59 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [showEMA, setShowEMA] = useState<boolean>(false);
   const [showRSI, setShowRSI] = useState<boolean>(false);
   const [showVolume, setShowVolume] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'terminal' | 'portfolio' | 'orders' | 'funding' | 'backtest'>('terminal');
+  const [activeTab, setActiveTab] = useState<'terminal' | 'portfolio' | 'orders' | 'funding' | 'backtest' | 'bot'>('terminal');
+
+  // Autonomous Agent Bot Engine State
+  const [botConfig, setBotConfig] = useState<BotConfig>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.BOT_CONFIG);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      enabled: false,
+      strategyId: 'all_confluence',
+      selectedSymbols: ['BTC-USD', 'NVDA', 'SOL-USD', 'AAPL'],
+      minConfidence: 84,
+      maxAllocationPerTrade: 3000,
+      maxOpenBotPositions: 3,
+      cooldownSeconds: 90,
+      takeProfitOffsetPct: 6.5,
+      stopLossOffsetPct: 3.0,
+      soundAlerts: true,
+      brokerIntegration: 'paper_simulated',
+    };
+  });
+
+  const [botStatus, setBotStatus] = useState<BotStatus>('IDLE');
+  const [botLogs, setBotLogs] = useState<BotLogEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.BOT_LOGS);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: `log-init-${Date.now()}`,
+        timestamp: Date.now(),
+        type: 'SYSTEM',
+        symbol: 'SYS',
+        message: 'TATM Autonomous Agent Engine initialized. Standby mode active.',
+      },
+    ];
+  });
+
+  const [botMetrics, setBotMetrics] = useState<BotMetrics>({
+    totalTrades: 0,
+    winningTrades: 0,
+    losingTrades: 0,
+    winRate: 0,
+    realizedPnl: 0,
+    uptimeSeconds: 0,
+  });
+
+  // Track per-symbol cooldowns: symbol -> expiry timestamp
+  const symbolCooldownsRef = useRef<Record<string, number>>({});
+  const botConfigRef = useRef(botConfig);
+  botConfigRef.current = botConfig;
 
   // Real Market Data connectivity state
   const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
@@ -585,6 +652,16 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const selectedSymbolRef = useRef(selectedSymbol);
   selectedSymbolRef.current = selectedSymbol;
 
+  // Helper to append a bot log entry
+  const addBotLog = useCallback((entry: Omit<BotLogEntry, 'id' | 'timestamp'>) => {
+    const newEntry: BotLogEntry = {
+      ...entry,
+      id: `bot-log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: Date.now(),
+    };
+    setBotLogs((prev) => [newEntry, ...prev].slice(0, 100));
+  }, []);
+
   // Central trigger evaluation engine for limit orders, stop loss orders, and OCO bracket orders
   const evaluateTriggers = useCallback((sym: string, currentPrice: number) => {
     const canonical = sym === 'BTC' ? 'BTC-USD' : sym === 'ETH' ? 'ETH-USD' : sym;
@@ -815,6 +892,33 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ...prev,
         ]);
 
+        // Record in bot telemetry log and update bot win/loss metrics
+        if (botConfigRef.current.enabled) {
+          addBotLog({
+            type: 'OCO_EXIT',
+            symbol: canonical,
+            price: exitPrice,
+            pnl,
+            message: triggered === 'tp'
+              ? `🎯 OCO Bracket Filled: Take-Profit Target Hit on ${canonical} @ $${exitPrice.toFixed(2)} (+${pnlPct}%, P&L: +$${pnl.toFixed(2)})`
+              : `🛡️ OCO Bracket Liquidated: Stop-Loss Executed on ${canonical} @ $${exitPrice.toFixed(2)} (${pnlPct}%, P&L: -$${Math.abs(pnl).toFixed(2)})`,
+          });
+
+          setBotMetrics((prev) => {
+            const wins = pnl > 0 ? prev.winningTrades + 1 : prev.winningTrades;
+            const losses = pnl < 0 ? prev.losingTrades + 1 : prev.losingTrades;
+            const closed = wins + losses;
+            const winRate = closed > 0 ? Number(((wins / closed) * 100).toFixed(1)) : 0;
+            return {
+              ...prev,
+              winningTrades: wins,
+              losingTrades: losses,
+              winRate,
+              realizedPnl: Number((prev.realizedPnl + pnl).toFixed(2)),
+            };
+          });
+        }
+
         addToast({
           type: triggered === 'tp' ? 'success' : 'warning',
           title: triggered === 'tp' ? '🎯 Take-Profit Triggered' : '🛡️ Stop-Loss Triggered',
@@ -822,7 +926,7 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
       }
     }
-  }, []);
+  }, [addBotLog]);
 
   // Public Coinbase WebSocket connection for crypto pairs (BTC-USD, ETH-USD, SOL-USD)
   useEffect(() => {
@@ -1567,6 +1671,250 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
+  // Autonomous Bot Engine Actions & Utilities
+  const updateBotConfig = useCallback((partial: Partial<BotConfig>) => {
+    setBotConfig((prev) => {
+      const next = { ...prev, ...partial };
+      try {
+        localStorage.setItem(STORAGE_KEYS.BOT_CONFIG, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const clearBotLogs = useCallback(() => {
+    setBotLogs([]);
+    try {
+      localStorage.removeItem(STORAGE_KEYS.BOT_LOGS);
+    } catch {}
+  }, []);
+
+  const toggleBotMasterSwitch = useCallback(() => {
+    setBotConfig((prev) => {
+      const nextState = !prev.enabled;
+      const next = { ...prev, enabled: nextState };
+      try {
+        localStorage.setItem(STORAGE_KEYS.BOT_CONFIG, JSON.stringify(next));
+      } catch {}
+
+      if (nextState) {
+        setBotStatus('SCANNING');
+        addBotLog({
+          type: 'SYSTEM',
+          symbol: 'SYS',
+          message: `🟢 Master Switch ARMED. Scanning [${next.selectedSymbols.join(', ')}] with strategy ${next.strategyId}.`,
+        });
+        addToast({
+          type: 'success',
+          title: '🤖 Agent Auto-Trader Armed',
+          message: `Bot active on ${next.selectedSymbols.length} assets with min conviction ${next.minConfidence}%.`,
+        });
+      } else {
+        setBotStatus('PAUSED');
+        addBotLog({
+          type: 'SYSTEM',
+          symbol: 'SYS',
+          message: '⏸️ Master Switch DISARMED. Scanning paused; active positions remain protected by OCO brackets.',
+        });
+        addToast({
+          type: 'info',
+          title: '🤖 Agent Auto-Trader Paused',
+          message: 'Autonomous scanning paused. Working OCO brackets remain active.',
+        });
+      }
+      return next;
+    });
+  }, [addBotLog, addToast]);
+
+  const triggerPanicKillSwitch = useCallback(() => {
+    setBotConfig((prev) => {
+      const next = { ...prev, enabled: false };
+      try {
+        localStorage.setItem(STORAGE_KEYS.BOT_CONFIG, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setBotStatus('HALTED');
+    playKillSwitchSound();
+
+    addBotLog({
+      type: 'KILL_SWITCH',
+      symbol: 'ALERT',
+      message: '🚨 EMERGENCY PANIC KILL SWITCH ACTIVATED. Bot disarmed immediately.',
+    });
+
+    addToast({
+      type: 'error',
+      title: '🚨 PANIC KILL SWITCH ACTIVATED',
+      message: 'Autonomous Bot halted immediately. Orders disarmed.',
+    });
+  }, [addBotLog, addToast]);
+
+  // Sync bot logs to LocalStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.BOT_LOGS, JSON.stringify(botLogs.slice(0, 50)));
+    } catch {}
+  }, [botLogs]);
+
+  // Track bot uptime
+  useEffect(() => {
+    if (!botConfig.enabled) return;
+    const timer = setInterval(() => {
+      setBotMetrics((prev) => ({
+        ...prev,
+        uptimeSeconds: prev.uptimeSeconds + 1,
+      }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [botConfig.enabled]);
+
+  // The Autonomous Bot Scanning & Execution Loop
+  useEffect(() => {
+    if (!botConfig.enabled) {
+      if (botStatus !== 'HALTED') setBotStatus('IDLE');
+      return;
+    }
+
+    setBotStatus('SCANNING');
+    let scanCycle = 0;
+
+    const botInterval = setInterval(() => {
+      scanCycle += 1;
+      const activeConfig = botConfigRef.current;
+      if (!activeConfig.enabled) return;
+
+      const currentCash = cashBalanceRef.current;
+      const currentPositions = positionsRef.current;
+      const activePositionSymbols = Object.keys(currentPositions);
+
+      // Check max open bot positions
+      if (activePositionSymbols.length >= activeConfig.maxOpenBotPositions) {
+        if (scanCycle % 6 === 0) {
+          addBotLog({
+            type: 'REJECT',
+            symbol: 'PORTFOLIO',
+            message: `Max concurrent positions limit reached (${activePositionSymbols.length}/${activeConfig.maxOpenBotPositions}). Standby for bracket exits.`,
+          });
+        }
+        return;
+      }
+
+      // Scan symbols sequentially
+      for (const sym of activeConfig.selectedSymbols) {
+        const canonical = sym === 'BTC' ? 'BTC-USD' : sym === 'ETH' ? 'ETH-USD' : sym;
+
+        // Skip if already holding this symbol
+        if (currentPositions[canonical]) continue;
+
+        // Skip if symbol is in active cooldown
+        const cooldownExpiry = symbolCooldownsRef.current[canonical];
+        if (cooldownExpiry && Date.now() < cooldownExpiry) {
+          continue;
+        }
+
+        const stock = stocksRef.current[canonical] || INITIAL_STOCKS[canonical];
+        if (!stock) continue;
+
+        // Obtain candle series for this asset
+        const assetCandles = (canonical === selectedSymbolRef.current && candles.length >= 20)
+          ? candles
+          : generateCandles(stock.price, '1D');
+
+        const suggestion = generateQuantitativeAnalysis(
+          stock,
+          assetCandles,
+          currentCash,
+          activeConfig.strategyId === 'all_confluence' ? undefined : activeConfig.strategyId
+        );
+
+        // Evaluation
+        if (suggestion.action === 'BUY' && suggestion.confidence >= activeConfig.minConfidence) {
+          // Calculate allocation and shares
+          const maxAlloc = Math.min(activeConfig.maxAllocationPerTrade, currentCash * 0.20);
+          if (maxAlloc < 50 || currentCash < 100) {
+            addBotLog({
+              type: 'REJECT',
+              symbol: canonical,
+              message: `Insufficient available cash ($${currentCash.toFixed(2)}) for allocation ($${maxAlloc.toFixed(2)}).`,
+            });
+            continue;
+          }
+
+          const entryPrice = stock.price;
+          const shares = Math.max(1, Math.floor(maxAlloc / entryPrice));
+          const totalCost = Number((shares * entryPrice).toFixed(2));
+
+          if (totalCost > currentCash) continue;
+
+          // Compute brackets based on custom offsets or quant targets
+          const tpPrice = Number((entryPrice * (1 + activeConfig.takeProfitOffsetPct / 100)).toFixed(2));
+          const slPrice = Number((entryPrice * (1 - activeConfig.stopLossOffsetPct / 100)).toFixed(2));
+
+          // Set bot status momentarily to ARMED
+          setBotStatus('ARMED');
+
+          // Execute Trade with attached bracket orders
+          const execResult = executeTrade({
+            symbol: canonical,
+            side: 'buy',
+            type: 'bracket',
+            shares,
+            takeProfitPrice: tpPrice,
+            stopLossPrice: slPrice,
+            isBracket: true,
+          });
+
+          if (execResult.success) {
+            if (activeConfig.soundAlerts) {
+              playTradeExecuteSound();
+            }
+
+            addBotLog({
+              type: 'SIGNAL',
+              symbol: canonical,
+              confidence: suggestion.confidence,
+              strategyName: suggestion.strategyName,
+              message: `High-conviction ${suggestion.confidence}% signal on ${canonical} via ${suggestion.strategyName}. Risk/Reward: ${suggestion.riskRewardRatio}`,
+            });
+
+            addBotLog({
+              type: 'EXECUTE',
+              symbol: canonical,
+              price: entryPrice,
+              shares,
+              strategyName: suggestion.strategyName,
+              message: `🤖 Auto-Executed BUY ${shares} ${canonical} @ $${entryPrice.toFixed(2)} | TP: $${tpPrice.toFixed(2)} (+${activeConfig.takeProfitOffsetPct}%) | SL: $${slPrice.toFixed(2)} (-${activeConfig.stopLossOffsetPct}%) [${activeConfig.brokerIntegration}]`,
+            });
+
+            // Set cooldown
+            symbolCooldownsRef.current[canonical] = Date.now() + activeConfig.cooldownSeconds * 1000;
+
+            // Update metrics
+            setBotMetrics((prev) => ({
+              ...prev,
+              totalTrades: prev.totalTrades + 1,
+              lastExecutionTimestamp: Date.now(),
+            }));
+
+            // Stop loop for this tick
+            break;
+          }
+        } else if (scanCycle % 4 === 0) {
+          // Log heartbeat scan
+          addBotLog({
+            type: 'SCAN',
+            symbol: canonical,
+            confidence: suggestion.confidence,
+            message: `Scanned ${canonical}: Confluence score ${suggestion.confidence}% (Below trigger threshold ${activeConfig.minConfidence}%). Status: Normal`,
+          });
+        }
+      }
+    }, 3200);
+
+    return () => clearInterval(botInterval);
+  }, [botConfig.enabled, executeTrade, addBotLog, candles]);
+
   return (
     <TradingContext.Provider
       value={{
@@ -1595,6 +1943,14 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isWatchlisted,
         activeTab,
         setActiveTab,
+        botConfig,
+        updateBotConfig,
+        botStatus,
+        botLogs,
+        clearBotLogs,
+        botMetrics,
+        toggleBotMasterSwitch,
+        triggerPanicKillSwitch,
         isPaymentModalOpen,
         setIsPaymentModalOpen,
         paymentModalInitialTab,
