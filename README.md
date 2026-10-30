@@ -153,6 +153,8 @@ TATM Application Architecture
 │   ├── Node.js + Express
 │   ├── tsx (Direct TypeScript runtime execution)
 │   ├── Vite Middlewares (Unified single-port development)
+│   ├── Health & Telemetry Probes (/healthz, /api/health)
+│   ├── Automatic Memory & Cache Pruner (20-min TTL)
 │   └── Google Gen AI TypeScript SDK (@google/genai)
 │       └── Gemini 3.8 Flash API (/api/analyze-stock)
 │

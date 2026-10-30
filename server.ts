@@ -65,6 +65,26 @@ function normalizeQuote(q: any) {
   };
 }
 
+// 0. Healthcheck & Telemetry Endpoint (for Cloud Run / container orchestrator probes)
+app.get(['/healthz', '/api/health'], (_req: Request, res: Response) => {
+  const mem = process.memoryUsage();
+  res.json({
+    status: 'healthy',
+    service: 'TATM - Trade Against the Machine',
+    uptimeSeconds: Math.floor(process.uptime()),
+    timestamp: Date.now(),
+    memory: {
+      rssMb: Math.round(mem.rss / 1024 / 1024),
+      heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+    },
+    geminiConfigured: !!process.env.GEMINI_API_KEY,
+    cache: {
+      quotesCached: !!cache.quotes,
+      cachedCandleSeriesCount: Object.keys(cache.candles).length,
+    },
+  });
+});
+
 // 1. Batch Real-World Quotes API
 app.get('/api/market/quotes', async (_req: Request, res: Response) => {
   try {
@@ -269,9 +289,31 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`TAtM (Trade Against the Machine) Server listening on http://0.0.0.0:${PORT}`);
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`TATM (Trade Against the Machine) Server listening on http://0.0.0.0:${PORT}`);
   });
+
+  // Periodic Cache Pruner (runs every 10 mins to purge candles older than 20 mins)
+  setInterval(() => {
+    const cutoff = Date.now() - 20 * 60 * 1000;
+    Object.keys(cache.candles).forEach((key) => {
+      if (cache.candles[key].timestamp < cutoff) {
+        delete cache.candles[key];
+      }
+    });
+  }, 10 * 60 * 1000);
+
+  // Graceful shutdown hooks for Cloud Run container lifecycle
+  const handleShutdown = (signal: string) => {
+    console.log(`Received ${signal}. Shutting down HTTP server cleanly...`);
+    server.close(() => {
+      console.log('HTTP server closed.');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
 startServer();
